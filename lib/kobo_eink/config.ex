@@ -83,9 +83,9 @@ defmodule KoboEink.Config do
       {"sbin/nvram_daemon", "/sbin/nvram_daemon", 0o755},
       # pickel - Kobo e-ink controller initialization
       {"usr/local/Kobo/pickel", "/usr/local/Kobo/pickel", 0o755},
-      # NVRAM libraries
-      {"lib/libnvram/libnvram.so", "/lib/libnvram/libnvram.so", 0o755},
-      {"lib/libnvram/libnvram_custom.so", "/lib/libnvram/libnvram_custom.so", 0o755}
+      # NVRAM libraries (source is lib/, destination is lib/libnvram/ to isolate them)
+      {"lib/libnvram.so", "/lib/libnvram/libnvram.so", 0o755},
+      {"lib/libnvram_custom.so", "/lib/libnvram/libnvram_custom.so", 0o755}
     ]
   end
 end
