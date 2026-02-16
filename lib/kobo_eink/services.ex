@@ -79,8 +79,8 @@ defmodule KoboEink.Services do
       if Partition.block_device?(partition) do
         case Partition.mount_readonly(partition, mount_point, 3, 1_000) do
           :ok ->
-            # Sync to ensure mount is stable (mirrors the shell script behavior)
-            System.cmd("sync", [], stderr_to_stdout: true)
+            # mount is synchronous - the filesystem is ready when it returns.
+            # No need to sync after a read-only mount.
             :ok
 
           {:error, _} = error ->
