@@ -271,9 +271,14 @@ defmodule KoboEink.Services do
   end
 
   defp daemon_running?(name) do
-    case System.cmd("pidof", [name], stderr_to_stdout: true) do
-      {_output, 0} -> true
-      _ -> false
-    end
+    # Use /proc directly instead of `pidof` which isn't available on Nerves.
+    # /proc/<pid>/comm contains the process name (truncated to 15 chars).
+    Path.wildcard("/proc/[0-9]*/comm")
+    |> Enum.any?(fn comm_path ->
+      case File.read(comm_path) do
+        {:ok, contents} -> String.trim(contents) == name
+        {:error, _} -> false
+      end
+    end)
   end
 end
