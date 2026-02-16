@@ -2,11 +2,11 @@ defmodule KoboEink.Services do
   @moduledoc """
   Manages the proprietary e-ink display services.
 
-  Handles starting and stopping the daemons and initialization scripts
+  Handles starting and stopping the daemons and initialization steps
   required for the Kobo e-ink display to function:
 
   - **init_bin mount** - Mount the init_bin partition containing display init data
-  - **ntx_check_regal_dev.sh** - Configure the REGAL waveform device node
+  - **REGAL device check** - Ensure REGAL waveform device nodes exist in `/dev`
   - **mdpd** - MediaTek Display Processing Daemon for hardware-accelerated display updates
   - **nvram_daemon** - NVRAM service for hardware calibration/config storage
   - **pickel init** - Hardware-level e-ink controller initialization
@@ -94,35 +94,96 @@ defmodule KoboEink.Services do
     end
   end
 
-  @doc """
-  Runs the Netronix REGAL waveform device check script.
+  @regal_sysfs "/sys/class/regal_class"
+  @regal_devices ~w(regal_wb regal_tmp regal_img regal_cinfo regal_waveform)
 
-  This script configures the REGAL device node used by the e-ink controller
-  for optimized waveform display (reduces ghosting).
+  @doc """
+  Ensures REGAL waveform device nodes exist in `/dev`.
+
+  Reads major:minor numbers from sysfs and creates character device nodes
+  via `mknod` if they don't already exist. This is a pure Elixir replacement
+  for the stock `ntx_check_regal_dev.sh` script, avoiding dependencies on
+  `awk` and other shell utilities not present in Nerves.
+
+  Non-fatal: the display may still work without REGAL optimization.
   """
   @spec run_regal_check() :: :ok | {:error, term()}
   def run_regal_check do
-    script = "/usr/libexec/ntx_check_regal_dev.sh"
+    if File.dir?(@regal_sysfs) do
+      Logger.info("[KoboEink] Checking REGAL device nodes...")
 
-    if File.exists?(script) do
-      Logger.info("[KoboEink] Running ntx_check_regal_dev.sh...")
+      Enum.each(@regal_devices, fn dev_name ->
+        ensure_regal_device(dev_name)
+      end)
 
-      case System.cmd(script, [], stderr_to_stdout: true, env: []) do
-        {output, 0} ->
-          Logger.debug("[KoboEink] ntx_check_regal_dev.sh output: #{String.trim(output)}")
-          :ok
-
-        {output, exit_code} ->
-          Logger.warning(
-            "[KoboEink] ntx_check_regal_dev.sh exited with #{exit_code}: #{String.trim(output)}"
-          )
-
-          # Non-fatal: the display may still work without REGAL optimization
-          :ok
-      end
-    else
-      Logger.warning("[KoboEink] ntx_check_regal_dev.sh not found at #{script} (non-fatal)")
       :ok
+    else
+      Logger.warning(
+        "[KoboEink] #{@regal_sysfs} not found - REGAL not supported on this hardware (non-fatal)"
+      )
+
+      :ok
+    end
+  end
+
+  defp ensure_regal_device(dev_name) do
+    sysfs_dev = Path.join([@regal_sysfs, dev_name, "dev"])
+    dev_path = Path.join("/dev", dev_name)
+
+    cond do
+      not File.exists?(sysfs_dev) ->
+        Logger.warning("[KoboEink] REGAL sysfs entry for #{dev_name} not found, skipping")
+
+      File.exists?(dev_path) ->
+        Logger.debug("[KoboEink] REGAL device #{dev_path} already exists")
+
+      true ->
+        case read_major_minor(sysfs_dev) do
+          {:ok, major, minor} ->
+            create_device_node(dev_path, major, minor)
+
+          {:error, reason} ->
+            Logger.warning(
+              "[KoboEink] Failed to read major:minor for #{dev_name}: #{inspect(reason)}"
+            )
+        end
+    end
+  end
+
+  defp read_major_minor(sysfs_dev_path) do
+    case File.read(sysfs_dev_path) do
+      {:ok, content} ->
+        case content |> String.trim() |> String.split(":") do
+          [major_str, minor_str] ->
+            with {major, ""} <- Integer.parse(major_str),
+                 {minor, ""} <- Integer.parse(minor_str) do
+              {:ok, major, minor}
+            else
+              _ -> {:error, {:parse_failed, String.trim(content)}}
+            end
+
+          _ ->
+            {:error, {:unexpected_format, String.trim(content)}}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp create_device_node(dev_path, major, minor) do
+    Logger.info("[KoboEink] Creating REGAL device node #{dev_path} (#{major}:#{minor})")
+
+    case System.cmd("mknod", [dev_path, "c", to_string(major), to_string(minor)],
+           stderr_to_stdout: true
+         ) do
+      {_output, 0} ->
+        Logger.info("[KoboEink] Created #{dev_path}")
+
+      {output, exit_code} ->
+        Logger.warning(
+          "[KoboEink] Failed to create #{dev_path}: exit=#{exit_code} #{String.trim(output)}"
+        )
     end
   end
 

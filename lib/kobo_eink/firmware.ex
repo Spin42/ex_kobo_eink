@@ -8,7 +8,6 @@ defmodule KoboEink.Firmware do
   - `mdpd` - MediaTek Display Processing Daemon
   - `nvram_daemon` - NVRAM service daemon
   - `pickel` - Kobo e-ink controller hardware initialization tool
-  - `ntx_check_regal_dev.sh` - Netronix REGAL waveform device setup script
   - `libnvram.so` / `libnvram_custom.so` - NVRAM access libraries
 
   A marker file tracks whether the copy has already been performed, so this
@@ -120,11 +119,23 @@ defmodule KoboEink.Firmware do
     dest_dir = Path.dirname(dest)
 
     with :ok <- ensure_dir(dest_dir),
+         :ok <- verify_source(source),
          {:ok, _} <- do_copy(source, dest),
          :ok <- File.chmod(dest, permissions) do
       Logger.info("[KoboEink] Copied #{Path.basename(source)} -> #{dest}")
       :ok
     else
+      {:error, {:mkdir_failed, _, _} = reason} ->
+        Logger.warning(
+          "[KoboEink] Failed to copy #{source} -> #{dest}: destination directory does not exist"
+        )
+
+        {:error, {:copy_failed, source, dest, reason}}
+
+      {:error, {:source_not_found, _} = reason} ->
+        Logger.warning("[KoboEink] Failed to copy #{source} -> #{dest}: source file not found")
+        {:error, {:copy_failed, source, dest, reason}}
+
       {:error, reason} ->
         Logger.warning("[KoboEink] Failed to copy #{source} -> #{dest}: #{inspect(reason)}")
         {:error, {:copy_failed, source, dest, reason}}
@@ -132,9 +143,25 @@ defmodule KoboEink.Firmware do
   end
 
   defp ensure_dir(dir) do
-    case File.mkdir_p(dir) do
-      :ok -> :ok
-      {:error, reason} -> {:error, {:mkdir_failed, dir, reason}}
+    if File.dir?(dir) do
+      :ok
+    else
+      case File.mkdir_p(dir) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          Logger.error("[KoboEink] Cannot create directory #{dir}: #{inspect(reason)}")
+          {:error, {:mkdir_failed, dir, reason}}
+      end
+    end
+  end
+
+  defp verify_source(source) do
+    if File.exists?(source) do
+      :ok
+    else
+      {:error, {:source_not_found, source}}
     end
   end
 
