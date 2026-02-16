@@ -230,10 +230,9 @@ defmodule KoboEink.Services do
   end
 
   @doc """
-  Starts the nvram_daemon with the required library path.
+  Starts the nvram_daemon.
 
-  Creates `/data/nvram` for NVRAM data storage and sets `LD_LIBRARY_PATH`
-  to include the nvram libraries copied from the stock partition.
+  Creates `/data/nvram` for NVRAM data storage.
   """
   @spec start_nvram_daemon() :: :ok | {:error, term()}
   def start_nvram_daemon do
@@ -249,14 +248,7 @@ defmodule KoboEink.Services do
 
         Logger.info("[KoboEink] Starting nvram_daemon...")
 
-        # nvram_daemon needs LD_LIBRARY_PATH to find its libraries
-        existing_ld_path = System.get_env("LD_LIBRARY_PATH") || ""
-
-        ld_path =
-          "/lib/libnvram" <>
-            if(existing_ld_path != "", do: ":" <> existing_ld_path, else: "")
-
-        start_daemon_via_sh(binary, [], [{"LD_LIBRARY_PATH", ld_path}])
+        start_daemon_via_sh(binary, [])
       end
     else
       Logger.warning("[KoboEink] nvram_daemon not found at #{binary} (non-fatal)")
